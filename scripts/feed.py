@@ -114,7 +114,6 @@ class Config:
                 return Path(top).resolve()
         except Exception:
             pass
-        # Fallback: scripts/..
         return Path(__file__).resolve().parent.parent
 
     @classmethod
@@ -135,24 +134,22 @@ class Config:
         companies_aliases = read_json(companies_cfg)
         settings = read_json(settings_cfg)
 
-        # Required env (fail early with KeyError if absent)
         cse_id  = os.environ["CSE_ID"]
         cse_key = os.environ["CSE_KEY"]
 
-        # Settings with defaults
         page_title   = settings.get("page", {}).get("title", "FAANG Discuss Daily")
         page_noindex = bool(settings.get("page", {}).get("noindex", True))
         company_order = settings.get("page", {}).get("company_order", list(companies_aliases.keys()))
 
-        site_host       = settings.get("query", {}).get("site", "leetcode.com/discuss")
-        max_results     = int(settings.get("query", {}).get("max_results", 40))
-        q_companies     = settings.get("query", {}).get("companies", list(companies_aliases.keys()))
-        q_intents       = settings.get("query", {}).get("intents", ["interview","onsite","phone","screen","OA","questions"])
+        site_host   = settings.get("query", {}).get("site", "leetcode.com/discuss")
+        max_results = int(settings.get("query", {}).get("max_results", 40))
+        q_companies = settings.get("query", {}).get("companies", list(companies_aliases.keys()))
+        q_intents   = settings.get("query", {}).get("intents", ["interview","onsite","phone","screen","OA","questions"])
 
-        allow_patterns  = settings.get("filters", {}).get("path_allow", [
+        allow_patterns = settings.get("filters", {}).get("path_allow", [
             r"^https?://leetcode\.com/discuss/(?:interview-question|study-guide|general-discussion|interview-experience)/"
         ])
-        keyword_words   = settings.get("filters", {}).get("keywords", [
+        keyword_words  = settings.get("filters", {}).get("keywords", [
             "onsite","phone","screen","oa","interview","experience","question","questions"
         ])
 
@@ -162,7 +159,6 @@ class Config:
         json_daily_stable = bool(settings.get("output", {}).get("json_daily_stable", True))
         json_salt       = os.getenv("JSON_SALT", "")
 
-        # Ensure output dirs exist
         output_html.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -221,7 +217,6 @@ class Fetcher:
             return json.loads(resp.read().decode("utf-8"))
 
     def fetch(self) -> List[Dict[str, Any]]:
-        # Build regexes once
         company_rx = {c: re.compile(r"|".join(map(re.escape, v)), re.I)
                       for c, v in self.cfg.companies_aliases.items()}
         allow_rx   = re.compile("|".join(self.cfg.allow_patterns), re.I)
@@ -275,7 +270,6 @@ class Fetcher:
             if data.get("searchInformation", {}).get("totalResults") == "0":
                 break
 
-        # Dedup by URL
         seen, dedup = set(), []
         for it in items:
             u = it["url"]
@@ -294,11 +288,9 @@ class Fetcher:
 class Renderer:
     cfg: Config
 
-    # ---------- JSON path logic ----------
     def _daily_token(self) -> str:
         """Stable per UTC day if JSON_SALT is set; otherwise random per run."""
         if not self.cfg.json_salt:
-            # random per run
             alphabet = string.ascii_lowercase + string.digits
             return "".join(secrets.choice(alphabet) for _ in range(16))
         payload = f"{date.today().isoformat()}::{self.cfg.json_salt}".encode("utf-8")
@@ -310,12 +302,10 @@ class Renderer:
             p.parent.mkdir(parents=True, exist_ok=True)
             return p
         token = self._daily_token() if self.cfg.json_daily_stable else self._daily_token()
-        # randomize directory and filename
         p = self.cfg.project_root / "data" / token / f"{token}.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
 
-    # ---------- Write outputs ----------
     def write_json_and_manifest(self, items: List[Dict[str, Any]]) -> Path:
         json_abs = self.compute_json_path()
         write_json_atomic(json_abs, {
@@ -334,7 +324,6 @@ class Renderer:
         print(f"[ok] wrote manifest {self.cfg.manifest_path} → {manifest_payload['json_path']}")
         return json_abs
 
-    # ---------- HTML (tabs by company) ----------
     def _build_html(self, items: List[Dict[str, Any]]) -> str:
         head_tpl = read_text(self.cfg.templates_dir / "head.html")
         head = head_tpl.replace("{{PAGE_TITLE}}", html.escape(self.cfg.page_title))
@@ -345,7 +334,6 @@ class Renderer:
         parts.append(f"<h1>{html.escape(self.cfg.page_title)}</h1>")
         parts.append(f"<div class='time'>Updated at {html.escape(now_iso_utc())}</div>")
 
-        # group by company
         groups: Dict[str, List[Dict[str, Any]]] = {}
         for it in items:
             groups.setdefault(it["company"], []).append(it)
@@ -355,7 +343,6 @@ class Renderer:
 
         available = [c for c in self.cfg.company_order if c in groups and groups[c]]
 
-        # tab buttons
         tabs: List[str] = ["<div class='tab' role='tablist' aria-label='Companies'>"]
         for c in available:
             cid = dom_id(c)
@@ -365,7 +352,6 @@ class Renderer:
         tabs.append("</div>")
         parts.append("\n".join(tabs))
 
-        # panes
         panes: List[str] = []
         for c in available:
             cid = dom_id(c)
@@ -405,7 +391,7 @@ def main() -> None:
     renderer = Renderer(cfg)
 
     items = fetcher.fetch()
-    json_path = renderer.write_json_and_manifest(items)  # not linked in HTML
+    json_path = renderer.write_json_and_manifest(items)
     renderer.write_html(items)
 
     rel = json_path.relative_to(cfg.project_root).as_posix()
