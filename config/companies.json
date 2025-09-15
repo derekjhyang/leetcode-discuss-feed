@@ -1,0 +1,8 @@
+{
+  "Google": ["google", "goog", "alphabet"],
+  "Meta": ["meta", "facebook", "fb"],
+  "Amazon": ["amazon", "aws", "amzn"],
+  "Apple": ["apple"],
+  "Netflix": ["netflix", "nflx"],
+  "Microsoft": ["microsoft", "msft"]
+}

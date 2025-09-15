@@ -1,0 +1,23 @@
+{
+  "query": {
+    "site": "leetcode.com/discuss",
+    "max_results": 40,
+    "companies": ["Google", "Meta", "Amazon", "Apple", "Netflix", "Microsoft"],
+    "intents": ["interview", "onsite", "phone", "screen", "OA", "questions"]
+  },
+  "filters": {
+    "path_allow": [
+      "^https?://leetcode\\.com/discuss/(?:interview-question|study-guide|general-discussion|interview-experience)/"
+    ],
+    "keywords": ["onsite", "phone", "screen", "oa", "interview", "experience", "question", "questions"]
+  },
+  "page": {
+    "title": "FAANG Discuss Daily",
+    "noindex": true,
+    "company_order": ["Google", "Meta", "Amazon", "Apple", "Netflix", "Microsoft"]
+  },
+  "output": {
+    "json": "data/latest.json",
+    "html": "index.html"
+  }
+}

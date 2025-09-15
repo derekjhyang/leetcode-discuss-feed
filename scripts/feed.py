@@ -1,67 +1,153 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, json, time, re, html
+"""
+Daily FAANG Discuss aggregator (compliant version).
+- Uses Google Programmable Search Engine (CSE) to fetch links/snippets.
+- Does NOT crawl leetcode.com directly.
+- Groups results by company configured in config/companies.json.
+- HTML head/footer and CSS are externalized in templates/ and assets/.
+"""
+
+import os
+import json
+import re
+import time
+import html
+from pathlib import Path
 from datetime import datetime, timezone
 import urllib.parse
 import urllib.request
+import urllib.error
 
-CSE_ID  = os.environ["CSE_ID"]
-CSE_KEY = os.environ["CSE_KEY"]
-MAX_RESULTS = int(os.getenv("MAX_RESULTS", "40"))
-OUTPUT_JSON = "data/latest.json"
-OUTPUT_HTML = "index.html"
+# -------- Paths / Defaults --------
+ROOT = Path(__file__).resolve().parent
+CONFIG_DIR = ROOT / "config"
+TEMPLATES_DIR = ROOT / "templates"
+ASSETS_DIR = ROOT / "assets"
 
-COMPANY_ALIASES = {
-    "Google": ["google", "goog", "alphabet"],
-    "Meta": ["meta", "facebook", "fb"],
-    "Amazon": ["amazon", "aws", "amzn"],
-    "Apple": ["apple"],
-    "Netflix": ["netflix", "nflx"],
-    "Microsoft": ["microsoft", "msft"],
-}
-COMPANY_REGEX = {c: re.compile(r"|".join(map(re.escape, v)), re.I) for c, v in COMPANY_ALIASES.items()}
+COMPANY_FILE = Path(os.getenv("COMPANY_CONFIG", CONFIG_DIR / "companies.json"))
+SETTINGS_FILE = Path(os.getenv("SETTINGS_CONFIG", CONFIG_DIR / "settings.json"))
 
-PATH_ALLOW = re.compile(
-    r"^https?://leetcode\.com/discuss/(?:interview-question|study-guide|general-discussion|interview-experience)/",
-    re.I
-)
-KEYWORDS = re.compile(r"\b(onsite|phone|screen|oa|interview|experience|questions?)\b", re.I)
+# Required environment secrets
+CSE_ID = os.environ["CSE_ID"]   # Google Programmable Search Engine ID
+CSE_KEY = os.environ["CSE_KEY"] # Google API Key
 
-def google_cse_search(q, start=1, num=10):
-    params = {"key": CSE_KEY, "cx": CSE_ID, "q": q, "start": start, "num": num, "sort": "date", "safe": "off"}
+# -------- Utilities --------
+def load_json(path: Path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def read_text(path: Path):
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+def safe_get(d: dict, keys, default=None):
+    cur = d
+    for k in keys:
+        if not isinstance(cur, dict) or k not in cur:
+            return default
+        cur = cur[k]
+    return cur
+
+# -------- Load Config --------
+companies_aliases = load_json(COMPANY_FILE)  # e.g., {"Google": ["google", "goog", ...], ...}
+settings = load_json(SETTINGS_FILE)
+
+max_results = int(safe_get(settings, ["query", "max_results"], 40))
+companies_for_query = safe_get(settings, ["query", "companies"], ["Google","Meta","Amazon","Apple","Netflix","Microsoft"])
+intents_for_query = safe_get(settings, ["query", "intents"], ["interview","onsite","phone","screen","OA","questions"])
+site_host = safe_get(settings, ["query", "site"], "leetcode.com/discuss")
+
+path_allow_patterns = safe_get(settings, ["filters", "path_allow"], [
+    r"^https?://leetcode\.com/discuss/(?:interview-question|study-guide|general-discussion|interview-experience)/"
+])
+keywords_words = safe_get(settings, ["filters", "keywords"], ["onsite","phone","screen","oa","interview","experience","question","questions"])
+
+company_order = safe_get(settings, ["page", "company_order"], list(companies_aliases.keys()))
+page_title = safe_get(settings, ["page", "title"], "FAANG Discuss Daily")
+page_noindex = bool(safe_get(settings, ["page", "noindex"], True))
+
+output_json = Path(safe_get(settings, ["output", "json"], "data/latest.json"))
+output_html = Path(safe_get(settings, ["output", "html"], "index.html"))
+
+# Build regexes
+COMPANY_REGEX = {c: re.compile(r"|".join(map(re.escape, v)), re.I) for c, v in companies_aliases.items()}
+PATH_ALLOW = re.compile("|".join(path_allow_patterns), re.I)
+KEYWORDS = re.compile(r"\b(" + "|".join(map(re.escape, keywords_words)) + r")\b", re.I)
+
+# Ensure output dir exists
+output_json.parent.mkdir(parents=True, exist_ok=True)
+
+# -------- Query Builder / Fetcher --------
+def build_query() -> str:
+    """
+    Build a Google CSE query string using site restriction and company/intents keywords.
+    """
+    companies = "(" + " OR ".join(companies_for_query) + ")"
+    intents = "(" + " OR ".join(intents_for_query) + ")"
+    return f"site:{site_host} {companies} {intents}"
+
+def cse_search(q: str, start: int = 1, num: int = 10) -> dict:
+    """
+    Call Google Custom Search API.
+    """
+    params = {
+        "key": CSE_KEY,
+        "cx": CSE_ID,
+        "q": q,
+        "start": start,
+        "num": num,
+        "sort": "date",
+        "safe": "off",
+    }
     url = "https://www.googleapis.com/customsearch/v1?" + urllib.parse.urlencode(params)
     with urllib.request.urlopen(url, timeout=30) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
-def detect_company(text):
+def detect_company(text: str):
+    """
+    Detect company by alias regex matches on title/snippet/link.
+    """
     for c, rx in COMPANY_REGEX.items():
         if rx.search(text or ""):
             return c
     return None
 
-def build_query():
-    companies = "(Google OR Meta OR Amazon OR Apple OR Netflix OR Microsoft)"
-    intents = "(interview OR onsite OR phone OR screen OR OA OR questions)"
-    return f'site:leetcode.com/discuss {companies} {intents}'
-
-def fetch_all():
+def fetch_items() -> list:
+    """
+    Fetch and filter items from CSE, then deduplicate.
+    """
     q = build_query()
-    items, start = [], 1
-    while len(items) < MAX_RESULTS and start <= 31:
-        data = google_cse_search(q, start=start, num=10)
+    items = []
+    start = 1
+
+    while len(items) < max_results and start <= 91:
+        try:
+            data = cse_search(q, start=start, num=10)
+        except urllib.error.HTTPError as e:
+            print("HTTPError:", e.read())
+            break
+        except Exception as e:
+            print("Fetch error:", e)
+            break
+
         for it in data.get("items", []):
-            link = it.get("link")
+            link = it.get("link", "")
             title = it.get("title", "")
             snippet = it.get("snippet", "")
+
             if not link or not PATH_ALLOW.search(link):
                 continue
+
             combo = f"{title} {snippet} {link}"
             if not KEYWORDS.search(combo):
                 continue
+
             company = detect_company(combo)
             if not company:
                 continue
+
             items.append({
                 "title": title,
                 "url": link,
@@ -69,74 +155,98 @@ def fetch_all():
                 "company": company,
                 "first_seen": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             })
-        start += 10
-        time.sleep(0.7)
-        if len(items) >= MAX_RESULTS: break
-        if data.get("searchInformation", {}).get("totalResults") == "0": break
 
+        start += 10
+        time.sleep(0.6)  # polite throttling
+
+        if len(items) >= max_results:
+            break
+        if data.get("searchInformation", {}).get("totalResults") == "0":
+            break
+
+    # Deduplicate by URL
     seen, dedup = set(), []
     for it in items:
-        if it["url"] in seen: 
+        u = it["url"]
+        if u in seen:
             continue
-        seen.add(it["url"])
+        seen.add(u)
         dedup.append(it)
-    return dedup[:MAX_RESULTS]
 
-def write_json(items):
-    os.makedirs(os.path.dirname(OUTPUT_JSON), exist_ok=True)
-    with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
-        json.dump({
-            "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "count": len(items),
-            "items": items
-        }, f, ensure_ascii=False, indent=2)
+    return dedup[:max_results]
 
-def write_html(items):
+# -------- Writers --------
+def write_json(items: list):
+    payload = {
+        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "count": len(items),
+        "items": items
+    }
+    with open(output_json, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    print(f"[ok] wrote {output_json}")
+
+def build_html(items: list) -> str:
+    """
+    Assemble HTML by stitching head.html + body content + tail.html.
+    Company sections are rendered in code; style lives in assets/style.css.
+    """
+    # Head
+    head_tpl = read_text(TEMPLATES_DIR / "head.html")
+    head = head_tpl.replace("{{PAGE_TITLE}}", html.escape(page_title))
+    if page_noindex:
+        # Inject noindex meta if not already present
+        if "name=\"robots\"" not in head:
+            head = head.replace("</head>", '  <meta name="robots" content="noindex,nofollow">\n</head>')
+
+    # Body header
+    updated_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    body_top = []
+    body_top.append(f"<h1>{html.escape(page_title)}</h1>")
+    body_top.append(f"<div class='time'>Updated at {html.escape(updated_iso)}</div>")
+
+    # Group by company
     groups = {}
     for it in items:
         groups.setdefault(it["company"], []).append(it)
-    order = ["Google", "Meta", "Amazon", "Apple", "Netflix", "Microsoft"]
-    parts = []
-    parts.append("""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FAANG Discuss Daily</title>
-<style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,'Noto Sans',sans-serif;background:#0b1020;color:#e9ecf1;margin:0;padding:24px}
-h1{font-size:24px;margin:0 0 12px}
-.time{opacity:.7;margin-bottom:16px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
-.card{background:#121936;border:1px solid #243058;border-radius:14px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
-.tag{display:inline-block;font-size:12px;padding:3px 8px;border-radius:999px;background:#243058;margin-right:6px}
-a{color:#a4c2ff;text-decoration:none}
-a:hover{text-decoration:underline}
-h2{font-size:18px;margin:22px 0 10px}
-.item-title{font-weight:600;margin:0 0 6px;font-size:15px;line-height:1.35}
-.snippet{opacity:.85;font-size:13px;line-height:1.4}
-.footer{opacity:.6;margin-top:20px;font-size:12px}
-</style><body>""")
-    parts.append("<h1>FAANG Discuss – Latest Links</h1>")
-    parts.append(f"<div class='time'>Updated at {html.escape(datetime.now().isoformat(timespec='seconds'))}</div>")
-    for company in order:
-        if company not in groups: 
+
+    # Render sections in company_order
+    sections = []
+    for company in company_order:
+        lst = groups.get(company, [])
+        if not lst:
             continue
-        parts.append(f"<h2><span class='tag'>{company}</span></h2>")
-        parts.append("<div class='grid'>")
-        for it in groups[company]:
-            parts.append(
+        sections.append(f"<h2><span class='tag'>{html.escape(company)}</span></h2>")
+        sections.append("<div class='grid'>")
+        for it in lst:
+            title = html.escape(it["title"])
+            url = html.escape(it["url"])
+            snippet = html.escape(it.get("snippet", ""))
+            sections.append(
                 "<div class='card'>"
-                f"<div class='item-title'><a href='{html.escape(it['url'])}' target='_blank' rel='noopener'>{html.escape(it['title'])}</a></div>"
-                f"<div class='snippet'>{html.escape(it.get('snippet',''))}</div>"
+                f"<div class='item-title'><a href='{url}' target='_blank' rel='noopener'>{title}</a></div>"
+                f"<div class='snippet'>{snippet}</div>"
                 "</div>"
             )
-        parts.append("</div>")
-    parts.append("<div class='footer'>Source via Google Programmable Search • Links point to leetcode.com/discuss</div>")
-    with open(OUTPUT_HTML, "w", encoding="utf-8") as f:
-        f.write("\n".join(parts))
+        sections.append("</div>")
 
+    # Footer
+    tail_tpl = read_text(TEMPLATES_DIR / "tail.html")
+
+    html_doc = head + "\n<body>\n" + "\n".join(body_top) + "\n" + "\n".join(sections) + "\n" + tail_tpl
+    return html_doc
+
+def write_html(items: list):
+    html_doc = build_html(items)
+    with open(output_html, "w", encoding="utf-8") as f:
+        f.write(html_doc)
+    print(f"[ok] wrote {output_html}")
+
+# -------- Main --------
 def main():
-    items = fetch_all()
+    items = fetch_items()
     write_json(items)
     write_html(items)
-    print(f"Generated {len(items)} items.")
 
 if __name__ == "__main__":
     main()

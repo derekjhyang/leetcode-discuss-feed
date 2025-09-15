@@ -1,0 +1,52 @@
+/* Minimal clean look */
+:root {
+  --bg: #0b1020;
+  --fg: #e9ecf1;
+  --card: #121936;
+  --line: #243058;
+  --link: #a4c2ff;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+  margin: 0;
+  padding: 24px;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Noto Sans", sans-serif;
+}
+
+h1 { font-size: 24px; margin: 0 0 12px; }
+h2 { font-size: 18px; margin: 22px 0 10px; }
+
+.time { opacity: .7; margin-bottom: 16px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+
+.tag {
+  display: inline-block;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--line);
+  margin-right: 6px;
+}
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.item-title { font-weight: 600; margin: 0 0 6px; font-size: 15px; line-height: 1.35; }
+.snippet { opacity: .85; font-size: 13px; line-height: 1.4; }
+
+.footer { opacity: .6; margin-top: 20px; font-size: 12px; }
