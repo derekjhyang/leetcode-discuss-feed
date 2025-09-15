@@ -1,7 +1,7 @@
 {
   "query": {
     "site": "leetcode.com/discuss",
-    "max_results": 40,
+    "max_results": 100,
     "companies": [
       "Apple",
       "Microsoft",
