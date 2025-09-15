@@ -4,5 +4,7 @@
   "Amazon": ["amazon", "aws", "amzn"],
   "Apple": ["apple"],
   "Netflix": ["netflix", "nflx"],
-  "Microsoft": ["microsoft", "msft"]
+  "Microsoft": ["microsoft", "msft"],
+  "Nvidia": ["nvidia", "nvda"],
+  "OpenAI": ["openai", "chatgpt"]
 }
