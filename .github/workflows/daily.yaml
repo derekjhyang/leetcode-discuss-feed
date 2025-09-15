@@ -1,31 +1,50 @@
-name: Daily LeetCode Discuss Feed
+name: Daily Build
 
 on:
-  schedule:
-    - cron: "15 01 * * *"   # 每日 09:15 Asia/Taipei ≈ 01:15 UTC
   workflow_dispatch:
+  schedule:
+    - cron: "0 1 * * *"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install --no-cache-dir requests
-      - name: Build
+      - run: |
+          python -m pip install --upgrade pip
+          pip install requests
+      - run: python scripts/feed.py
         env:
           CSE_ID: ${{ secrets.CSE_ID }}
           CSE_KEY: ${{ secrets.CSE_KEY }}
-          MAX_RESULTS: "40"
-        run: python scripts/feed.py
-      - name: Commit & Push
-        run: |
-          git config user.name "faang-bot"
-          git config user.email "bot@example.com"
-          git add -A
-          git commit -m "chore: daily update" || echo "Nothing to commit"
+          COMPANY_CONFIG: ${{ github.workspace }}/config/companies.json
+          SETTINGS_CONFIG: ${{ github.workspace }}/config/settings.json
+          JSON_SALT: ${{ secrets.JSON_SALT }}
+      - run: |
+          cat data/manifest.json
+          python - <<'PY'
+import json, pathlib
+data = json.loads(pathlib.Path("data/manifest.json").read_text())
+print(data.get("json_path"))
+PY
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html data/
+          git commit -m "chore: update daily feed [skip ci]" || echo "No changes"
           git push
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./
+          publish_branch: gh-pages

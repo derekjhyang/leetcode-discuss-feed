@@ -50,3 +50,26 @@ a:hover { text-decoration: underline; }
 .snippet { opacity: .85; font-size: 13px; line-height: 1.4; }
 
 .footer { opacity: .6; margin-top: 20px; font-size: 12px; }
+
+/* --- Tabs --- */
+.tab {
+  overflow: hidden;
+  margin: 12px 0 20px;
+}
+.tab button {
+  background-color: #243058;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 10px 18px;
+  margin-right: 6px;
+  border-radius: 8px;
+  color: #e9ecf1;
+  font-weight: 600;
+}
+.tab button.active {
+  background-color: #4460a0;
+}
+.tabcontent {
+  display: none; /* hidden by default; JS will toggle */
+}

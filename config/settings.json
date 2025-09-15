@@ -17,7 +17,9 @@
     "company_order": ["Google", "Meta", "Amazon", "Apple", "Netflix", "Microsoft"]
   },
   "output": {
-    "json": "data/latest.json",
-    "html": "index.html"
+    "html": "index.html",
+    "json_manifest": "data/manifest.json",
+    "json_randomize": true,            // turn on randomized JSON path
+    "json_daily_stable": true          // stable per UTC day if JSON_SALT is provided
   }
 }

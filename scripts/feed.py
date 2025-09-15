@@ -2,286 +2,414 @@
 # -*- coding: utf-8 -*-
 
 """
-Daily FAANG Discuss aggregator (compliant version).
-- Uses Google Programmable Search Engine (CSE) to fetch links/snippets.
-- Does NOT crawl leetcode.com directly.
-- Groups results by company configured in config/companies.json.
-- HTML head/footer and CSS are externalized in templates/ and assets/.
+FAANG Discuss aggregator (compliant, refactored).
+- NO direct scraping of LeetCode pages. Uses Google CSE result links/snippets only.
+- Clear separation of concerns:
+  * Config: project root detection, config loading, paths, env.
+  * Fetcher: build query, call CSE, filter, dedup.
+  * Renderer: write randomized JSON (hidden), manifest, and HTML (tabs by company).
+- JSON path is randomized in both directory and filename: data/<token>/<token>.json
+  * If JSON_SALT is set and json_daily_stable=true, token is stable per UTC-day.
+  * Otherwise, token is random per run.
+- The HTML page does NOT link or expose the JSON path. A small manifest (data/manifest.json)
+  is written for ops/automation to discover the latest JSON path.
 """
 
+from __future__ import annotations
+
 import os
-import json
 import re
-import time
+import json
 import html
-from pathlib import Path
-from datetime import datetime, timezone
+import time
+import hashlib
+import secrets
+import string
+import subprocess
 import urllib.parse
 import urllib.request
 import urllib.error
-
-def detect_project_root() -> Path:
-    # 1) explicit CI hint
-    ws = os.environ.get("GITHUB_WORKSPACE")
-    if ws and Path(ws).exists():
-        return Path(ws).resolve()
-
-    # 2) git toplevel if available (works locally & CI)
-    try:
-        top = subprocess.check_output(
-            ["git", "rev-parse", "--show-toplevel"],
-            stderr=subprocess.DEVNULL
-        ).decode().strip()
-        if top and Path(top).exists():
-            return Path(top).resolve()
-    except Exception:
-        pass
-
-    # 3) fallback: scripts/..
-    return Path(__file__).resolve().parent.parent
-
-PROJECT_ROOT = detect_project_root()
-
-def ensure_exists(p: Path, hint: str):
-    if not p.exists():
-        raise FileNotFoundError(f"Missing file: {p}\nHint: {hint}")
-
-# ---------- config locations ----------
-# Allow explicit env overrides
-company_cfg_env = os.getenv("COMPANY_CONFIG")
-settings_cfg_env = os.getenv("SETTINGS_CONFIG")
-
-COMPANY_FILE = Path(company_cfg_env) if company_cfg_env else (PROJECT_ROOT / "config" / "companies.json")
-SETTINGS_FILE = Path(settings_cfg_env) if settings_cfg_env else (PROJECT_ROOT / "config" / "settings.json")
-
-TEMPLATES_DIR = PROJECT_ROOT / "templates"
-ASSETS_DIR    = PROJECT_ROOT / "assets"
-
-ensure_exists(COMPANY_FILE,  "Put companies.json under <repo-root>/config/ or set COMPANY_CONFIG env.")
-ensure_exists(SETTINGS_FILE, "Put settings.json under <repo-root>/config/ or set SETTINGS_CONFIG env.")
-ensure_exists(TEMPLATES_DIR / "head.html", "Missing templates/head.html under <repo-root>/templates/")
-ensure_exists(TEMPLATES_DIR / "tail.html", "Missing templates/tail.html under <repo-root>/templates/")
-ensure_exists(ASSETS_DIR / "style.css",    "Missing assets/style.css under <repo-root>/assets/")
-
-# Required environment secrets
-CSE_ID = os.environ["CSE_ID"]   # Google Programmable Search Engine ID
-CSE_KEY = os.environ["CSE_KEY"] # Google API Key
+from dataclasses import dataclass
+from datetime import datetime, timezone, date
+from pathlib import Path
+from typing import Dict, List, Any
 
 
-# -------- Utilities --------
-def load_json(path: Path):
+# =====================================================================
+# Utilities
+# =====================================================================
+
+def die_missing(path: Path, hint: str) -> None:
+    """Fail fast with clear error message when a required file is missing."""
+    if not path.exists():
+        raise FileNotFoundError(f"Missing file: {path}\nHint: {hint}")
+
+def read_json(path: Path) -> Any:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def read_text(path: Path):
+def read_text(path: Path) -> str:
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
 
-def safe_get(d: dict, keys, default=None):
-    cur = d
-    for k in keys:
-        if not isinstance(cur, dict) or k not in cur:
-            return default
-        cur = cur[k]
-    return cur
-
-# -------- Load Config --------
-companies_aliases = load_json(COMPANY_FILE)  # e.g., {"Google": ["google", "goog", ...], ...}
-settings = load_json(SETTINGS_FILE)
-
-max_results = int(safe_get(settings, ["query", "max_results"], 40))
-companies_for_query = safe_get(settings, ["query", "companies"], ["Google","Meta","Amazon","Apple","Netflix","Microsoft"])
-intents_for_query = safe_get(settings, ["query", "intents"], ["interview","onsite","phone","screen","OA","questions"])
-site_host = safe_get(settings, ["query", "site"], "leetcode.com/discuss")
-
-path_allow_patterns = safe_get(settings, ["filters", "path_allow"], [
-    r"^https?://leetcode\.com/discuss/(?:interview-question|study-guide|general-discussion|interview-experience)/"
-])
-keywords_words = safe_get(settings, ["filters", "keywords"], ["onsite","phone","screen","oa","interview","experience","question","questions"])
-
-company_order = safe_get(settings, ["page", "company_order"], list(companies_aliases.keys()))
-page_title = safe_get(settings, ["page", "title"], "FAANG Discuss Daily")
-page_noindex = bool(safe_get(settings, ["page", "noindex"], True))
-
-output_json = Path(safe_get(settings, ["output", "json"], "data/latest.json"))
-output_html = Path(safe_get(settings, ["output", "html"], "index.html"))
-
-# Build regexes
-COMPANY_REGEX = {c: re.compile(r"|".join(map(re.escape, v)), re.I) for c, v in companies_aliases.items()}
-PATH_ALLOW = re.compile("|".join(path_allow_patterns), re.I)
-KEYWORDS = re.compile(r"\b(" + "|".join(map(re.escape, keywords_words)) + r")\b", re.I)
-
-# Ensure output dir exists
-output_json.parent.mkdir(parents=True, exist_ok=True)
-
-# -------- Query Builder / Fetcher --------
-def build_query() -> str:
-    """
-    Build a Google CSE query string using site restriction and company/intents keywords.
-    """
-    companies = "(" + " OR ".join(companies_for_query) + ")"
-    intents = "(" + " OR ".join(intents_for_query) + ")"
-    return f"site:{site_host} {companies} {intents}"
-
-def cse_search(q: str, start: int = 1, num: int = 10) -> dict:
-    """
-    Call Google Custom Search API.
-    """
-    params = {
-        "key": CSE_KEY,
-        "cx": CSE_ID,
-        "q": q,
-        "start": start,
-        "num": num,
-        "sort": "date",
-        "safe": "off",
-    }
-    url = "https://www.googleapis.com/customsearch/v1?" + urllib.parse.urlencode(params)
-    with urllib.request.urlopen(url, timeout=30) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
-def detect_company(text: str):
-    """
-    Detect company by alias regex matches on title/snippet/link.
-    """
-    for c, rx in COMPANY_REGEX.items():
-        if rx.search(text or ""):
-            return c
-    return None
-
-def fetch_items() -> list:
-    """
-    Fetch and filter items from CSE, then deduplicate.
-    """
-    q = build_query()
-    items = []
-    start = 1
-
-    while len(items) < max_results and start <= 91:
-        try:
-            data = cse_search(q, start=start, num=10)
-        except urllib.error.HTTPError as e:
-            print("HTTPError:", e.read())
-            break
-        except Exception as e:
-            print("Fetch error:", e)
-            break
-
-        for it in data.get("items", []):
-            link = it.get("link", "")
-            title = it.get("title", "")
-            snippet = it.get("snippet", "")
-
-            if not link or not PATH_ALLOW.search(link):
-                continue
-
-            combo = f"{title} {snippet} {link}"
-            if not KEYWORDS.search(combo):
-                continue
-
-            company = detect_company(combo)
-            if not company:
-                continue
-
-            items.append({
-                "title": title,
-                "url": link,
-                "snippet": snippet,
-                "company": company,
-                "first_seen": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            })
-
-        start += 10
-        time.sleep(0.6)  # polite throttling
-
-        if len(items) >= max_results:
-            break
-        if data.get("searchInformation", {}).get("totalResults") == "0":
-            break
-
-    # Deduplicate by URL
-    seen, dedup = set(), []
-    for it in items:
-        u = it["url"]
-        if u in seen:
-            continue
-        seen.add(u)
-        dedup.append(it)
-
-    return dedup[:max_results]
-
-# -------- Writers --------
-def write_json(items: list):
-    payload = {
-        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "count": len(items),
-        "items": items
-    }
-    with open(output_json, "w", encoding="utf-8") as f:
+def write_json_atomic(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
-    print(f"[ok] wrote {output_json}")
+    tmp.replace(path)
 
-def build_html(items: list) -> str:
-    """
-    Assemble HTML by stitching head.html + body content + tail.html.
-    Company sections are rendered in code; style lives in assets/style.css.
-    """
-    # Head
-    head_tpl = read_text(TEMPLATES_DIR / "head.html")
-    head = head_tpl.replace("{{PAGE_TITLE}}", html.escape(page_title))
-    if page_noindex:
-        # Inject noindex meta if not already present
-        if "name=\"robots\"" not in head:
+def now_iso_utc() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# =====================================================================
+# Config
+# =====================================================================
+
+@dataclass(frozen=True)
+class Config:
+    project_root: Path
+    companies_cfg: Path
+    settings_cfg: Path
+    templates_dir: Path
+    assets_dir: Path
+
+    companies_aliases: Dict[str, List[str]]
+    settings: Dict[str, Any]
+
+    # derived settings / env
+    cse_id: str
+    cse_key: str
+    page_title: str
+    page_noindex: bool
+    company_order: List[str]
+
+    site_host: str
+    max_results: int
+    q_companies: List[str]
+    q_intents: List[str]
+
+    allow_patterns: List[str]
+    keyword_words: List[str]
+
+    output_html: Path
+    manifest_path: Path
+    json_randomize: bool
+    json_daily_stable: bool
+    json_salt: str
+
+    @staticmethod
+    def detect_project_root() -> Path:
+        """Robust project-root detection for both local and CI."""
+        ws = os.environ.get("GITHUB_WORKSPACE")
+        if ws and Path(ws).exists():
+            return Path(ws).resolve()
+        try:
+            top = subprocess.check_output(
+                ["git", "rev-parse", "--show-toplevel"],
+                stderr=subprocess.DEVNULL
+            ).decode().strip()
+            if top and Path(top).exists():
+                return Path(top).resolve()
+        except Exception:
+            pass
+        # Fallback: scripts/..
+        return Path(__file__).resolve().parent.parent
+
+    @classmethod
+    def load(cls) -> "Config":
+        root = cls.detect_project_root()
+
+        companies_cfg = Path(os.getenv("COMPANY_CONFIG", root / "config" / "companies.json"))
+        settings_cfg  = Path(os.getenv("SETTINGS_CONFIG", root / "config" / "settings.json"))
+        templates_dir = root / "templates"
+        assets_dir    = root / "assets"
+
+        die_missing(companies_cfg, "Put companies.json under <repo-root>/config/ or set COMPANY_CONFIG env.")
+        die_missing(settings_cfg,  "Put settings.json under <repo-root>/config/ or set SETTINGS_CONFIG env.")
+        die_missing(templates_dir / "head.html", "Missing templates/head.html under <repo-root>/templates/")
+        die_missing(templates_dir / "tail.html", "Missing templates/tail.html under <repo-root>/templates/")
+        die_missing(assets_dir / "style.css",    "Missing assets/style.css under <repo-root>/assets/")
+
+        companies_aliases = read_json(companies_cfg)
+        settings = read_json(settings_cfg)
+
+        # Required env (fail early with KeyError if absent)
+        cse_id  = os.environ["CSE_ID"]
+        cse_key = os.environ["CSE_KEY"]
+
+        # Settings with defaults
+        page_title   = settings.get("page", {}).get("title", "FAANG Discuss Daily")
+        page_noindex = bool(settings.get("page", {}).get("noindex", True))
+        company_order = settings.get("page", {}).get("company_order", list(companies_aliases.keys()))
+
+        site_host       = settings.get("query", {}).get("site", "leetcode.com/discuss")
+        max_results     = int(settings.get("query", {}).get("max_results", 40))
+        q_companies     = settings.get("query", {}).get("companies", list(companies_aliases.keys()))
+        q_intents       = settings.get("query", {}).get("intents", ["interview","onsite","phone","screen","OA","questions"])
+
+        allow_patterns  = settings.get("filters", {}).get("path_allow", [
+            r"^https?://leetcode\.com/discuss/(?:interview-question|study-guide|general-discussion|interview-experience)/"
+        ])
+        keyword_words   = settings.get("filters", {}).get("keywords", [
+            "onsite","phone","screen","oa","interview","experience","question","questions"
+        ])
+
+        output_html     = root / Path(settings.get("output", {}).get("html", "index.html"))
+        manifest_path   = root / Path(settings.get("output", {}).get("json_manifest", "data/manifest.json"))
+        json_randomize  = bool(settings.get("output", {}).get("json_randomize", True))
+        json_daily_stable = bool(settings.get("output", {}).get("json_daily_stable", True))
+        json_salt       = os.getenv("JSON_SALT", "")
+
+        # Ensure output dirs exist
+        output_html.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
+        return cls(
+            project_root=root,
+            companies_cfg=companies_cfg,
+            settings_cfg=settings_cfg,
+            templates_dir=templates_dir,
+            assets_dir=assets_dir,
+            companies_aliases=companies_aliases,
+            settings=settings,
+            cse_id=cse_id,
+            cse_key=cse_key,
+            page_title=page_title,
+            page_noindex=page_noindex,
+            company_order=company_order,
+            site_host=site_host,
+            max_results=max_results,
+            q_companies=q_companies,
+            q_intents=q_intents,
+            allow_patterns=allow_patterns,
+            keyword_words=keyword_words,
+            output_html=output_html,
+            manifest_path=manifest_path,
+            json_randomize=json_randomize,
+            json_daily_stable=json_daily_stable,
+            json_salt=json_salt,
+        )
+
+
+# =====================================================================
+# Fetcher
+# =====================================================================
+
+@dataclass
+class Fetcher:
+    cfg: Config
+
+    def _build_query(self) -> str:
+        companies = "(" + " OR ".join(self.cfg.q_companies) + ")"
+        intents   = "(" + " OR ".join(self.cfg.q_intents)   + ")"
+        return f"site:{self.cfg.site_host} {companies} {intents}"
+
+    def _cse(self, q: str, start: int = 1, num: int = 10) -> Dict[str, Any]:
+        params = {
+            "key": self.cfg.cse_key,
+            "cx": self.cfg.cse_id,
+            "q": q,
+            "start": start,
+            "num": num,
+            "sort": "date",
+            "safe": "off",
+        }
+        url = "https://www.googleapis.com/customsearch/v1?" + urllib.parse.urlencode(params)
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def fetch(self) -> List[Dict[str, Any]]:
+        # Build regexes once
+        company_rx = {c: re.compile(r"|".join(map(re.escape, v)), re.I)
+                      for c, v in self.cfg.companies_aliases.items()}
+        allow_rx   = re.compile("|".join(self.cfg.allow_patterns), re.I)
+        keywords_rx = re.compile(r"\b(" + "|".join(map(re.escape, self.cfg.keyword_words)) + r")\b", re.I)
+
+        def detect_company(text: str | None) -> str | None:
+            s = text or ""
+            for c, rx in company_rx.items():
+                if rx.search(s):
+                    return c
+            return None
+
+        q = self._build_query()
+        items: List[Dict[str, Any]] = []
+        start = 1
+
+        while len(items) < self.cfg.max_results and start <= 91:
+            try:
+                data = self._cse(q, start=start, num=10)
+            except urllib.error.HTTPError as e:
+                print("HTTPError:", e.read())
+                break
+            except Exception as e:
+                print("Fetch error:", e)
+                break
+
+            for it in data.get("items", []):
+                link = it.get("link", "")
+                title = it.get("title", "")
+                snippet = it.get("snippet", "")
+                if not link or not allow_rx.search(link):
+                    continue
+                combo = f"{title} {snippet} {link}"
+                if not keywords_rx.search(combo):
+                    continue
+                company = detect_company(combo)
+                if not company:
+                    continue
+                items.append({
+                    "title": title,
+                    "url": link,
+                    "snippet": snippet,
+                    "company": company,
+                    "first_seen": now_iso_utc(),
+                })
+
+            start += 10
+            time.sleep(0.6)
+            if len(items) >= self.cfg.max_results:
+                break
+            if data.get("searchInformation", {}).get("totalResults") == "0":
+                break
+
+        # Dedup by URL
+        seen, dedup = set(), []
+        for it in items:
+            u = it["url"]
+            if u in seen:
+                continue
+            seen.add(u)
+            dedup.append(it)
+        return dedup[: self.cfg.max_results]
+
+
+# =====================================================================
+# Renderer
+# =====================================================================
+
+@dataclass
+class Renderer:
+    cfg: Config
+
+    # ---------- JSON path logic ----------
+    def _daily_token(self) -> str:
+        """Stable per UTC day if JSON_SALT is set; otherwise random per run."""
+        if not self.cfg.json_salt:
+            # random per run
+            alphabet = string.ascii_lowercase + string.digits
+            return "".join(secrets.choice(alphabet) for _ in range(16))
+        payload = f"{date.today().isoformat()}::{self.cfg.json_salt}".encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()[:16]
+
+    def compute_json_path(self) -> Path:
+        if not self.cfg.json_randomize:
+            p = self.cfg.project_root / "data" / "latest.json"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            return p
+        token = self._daily_token() if self.cfg.json_daily_stable else self._daily_token()
+        # randomize directory and filename
+        p = self.cfg.project_root / "data" / token / f"{token}.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
+    # ---------- Write outputs ----------
+    def write_json_and_manifest(self, items: List[Dict[str, Any]]) -> Path:
+        json_abs = self.compute_json_path()
+        write_json_atomic(json_abs, {
+            "updated_at": now_iso_utc(),
+            "count": len(items),
+            "items": items
+        })
+        print(f"[ok] wrote JSON {json_abs}")
+
+        manifest_payload = {
+            "updated_at": now_iso_utc(),
+            "json_path": str(json_abs.relative_to(self.cfg.project_root).as_posix()),
+            "count": len(items)
+        }
+        write_json_atomic(self.cfg.manifest_path, manifest_payload)
+        print(f"[ok] wrote manifest {self.cfg.manifest_path} → {manifest_payload['json_path']}")
+        return json_abs
+
+    # ---------- HTML (tabs by company) ----------
+    def _build_html(self, items: List[Dict[str, Any]]) -> str:
+        head_tpl = read_text(self.cfg.templates_dir / "head.html")
+        head = head_tpl.replace("{{PAGE_TITLE}}", html.escape(self.cfg.page_title))
+        if self.cfg.page_noindex and 'name="robots"' not in head:
             head = head.replace("</head>", '  <meta name="robots" content="noindex,nofollow">\n</head>')
 
-    # Body header
-    updated_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    body_top = []
-    body_top.append(f"<h1>{html.escape(page_title)}</h1>")
-    body_top.append(f"<div class='time'>Updated at {html.escape(updated_iso)}</div>")
+        parts: List[str] = []
+        parts.append(f"<h1>{html.escape(self.cfg.page_title)}</h1>")
+        parts.append(f"<div class='time'>Updated at {html.escape(now_iso_utc())}</div>")
 
-    # Group by company
-    groups = {}
-    for it in items:
-        groups.setdefault(it["company"], []).append(it)
+        # group by company
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        for it in items:
+            groups.setdefault(it["company"], []).append(it)
 
-    # Render sections in company_order
-    sections = []
-    for company in company_order:
-        lst = groups.get(company, [])
-        if not lst:
-            continue
-        sections.append(f"<h2><span class='tag'>{html.escape(company)}</span></h2>")
-        sections.append("<div class='grid'>")
-        for it in lst:
-            title = html.escape(it["title"])
-            url = html.escape(it["url"])
-            snippet = html.escape(it.get("snippet", ""))
-            sections.append(
-                "<div class='card'>"
-                f"<div class='item-title'><a href='{url}' target='_blank' rel='noopener'>{title}</a></div>"
-                f"<div class='snippet'>{snippet}</div>"
-                "</div>"
+        def dom_id(name: str) -> str:
+            return "tab-" + re.sub(r"[^a-zA-Z0-9_-]", "-", name)
+
+        available = [c for c in self.cfg.company_order if c in groups and groups[c]]
+
+        # tab buttons
+        tabs: List[str] = ["<div class='tab' role='tablist' aria-label='Companies'>"]
+        for c in available:
+            cid = dom_id(c)
+            tabs.append(
+                f"<button class='tablink' role='tab' aria-controls='{cid}' onclick=\"openCompany(event,'{cid}')\">{html.escape(c)}</button>"
             )
-        sections.append("</div>")
+        tabs.append("</div>")
+        parts.append("\n".join(tabs))
 
-    # Footer
-    tail_tpl = read_text(TEMPLATES_DIR / "tail.html")
+        # panes
+        panes: List[str] = []
+        for c in available:
+            cid = dom_id(c)
+            panes.append(f"<div id='{cid}' class='tabcontent' role='tabpanel' aria-labelledby='{cid}-btn'>")
+            panes.append("<div class='grid'>")
+            for it in groups[c]:
+                title = html.escape(it["title"])
+                url = html.escape(it["url"])
+                snippet = html.escape(it.get("snippet", ""))
+                panes.append(
+                    "<div class='card'>"
+                    f"<div class='item-title'><a href='{url}' target='_blank' rel='noopener'>{title}</a></div>"
+                    f"<div class='snippet'>{snippet}</div>"
+                    "</div>"
+                )
+            panes.append("</div></div>")
+        parts.append("\n".join(panes))
 
-    html_doc = head + "\n<body>\n" + "\n".join(body_top) + "\n" + "\n".join(sections) + "\n" + tail_tpl
-    return html_doc
+        tail_tpl = read_text(self.cfg.templates_dir / "tail.html")
+        return head + "\n<body>\n" + "\n".join(parts) + "\n" + tail_tpl
 
-def write_html(items: list):
-    html_doc = build_html(items)
-    with open(output_html, "w", encoding="utf-8") as f:
-        f.write(html_doc)
-    print(f"[ok] wrote {output_html}")
+    def write_html(self, items: List[Dict[str, Any]]) -> None:
+        html_doc = self._build_html(items)
+        self.cfg.output_html.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.cfg.output_html, "w", encoding="utf-8") as f:
+            f.write(html_doc)
+        print(f"[ok] wrote HTML {self.cfg.output_html}")
 
-# -------- Main --------
-def main():
-    items = fetch_items()
-    write_json(items)
-    write_html(items)
+
+# =====================================================================
+# Main
+# =====================================================================
+
+def main() -> None:
+    cfg = Config.load()
+    fetcher = Fetcher(cfg)
+    renderer = Renderer(cfg)
+
+    items = fetcher.fetch()
+    json_path = renderer.write_json_and_manifest(items)  # not linked in HTML
+    renderer.write_html(items)
+
+    rel = json_path.relative_to(cfg.project_root).as_posix()
+    print(f"[info] Latest JSON path (not exposed in page): {rel}")
 
 if __name__ == "__main__":
     main()
