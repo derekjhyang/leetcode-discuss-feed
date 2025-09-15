@@ -9,8 +9,8 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, List
 
-from .config_loader import Config
-from .utils import now_iso_utc, read_text, write_json_atomic
+from config_loader import Config
+from utils import now_iso_utc, read_text, write_json_atomic
 
 
 @dataclass

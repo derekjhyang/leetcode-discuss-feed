@@ -9,8 +9,8 @@ import urllib.error
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-from .config_loader import Config
-from .utils import now_iso_utc
+from config_loader import Config
+from utils import now_iso_utc
 
 
 @dataclass

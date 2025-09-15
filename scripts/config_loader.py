@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .utils import die_missing, read_json
+from utils import die_missing, read_json
 
 
 @dataclass(frozen=True)
