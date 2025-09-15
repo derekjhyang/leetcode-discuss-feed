@@ -23,13 +23,10 @@ jobs:
           COMPANY_CONFIG: ${{ github.workspace }}/config/companies.json
           SETTINGS_CONFIG: ${{ github.workspace }}/config/settings.json
           JSON_SALT: ${{ secrets.JSON_SALT }}
-      - run: |
-          cat data/manifest.json
-          python - <<'PY'
-import json, pathlib
-data = json.loads(pathlib.Path("data/manifest.json").read_text())
-print(data.get("json_path"))
-PY
+      - run: cat data/manifest.json
+      - name: Print json_path from manifest
+        run: |
+          python scripts/print_json_path.py
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
