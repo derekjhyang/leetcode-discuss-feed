@@ -1,0 +1,31 @@
+name: Daily LeetCode Discuss Feed
+
+on:
+  schedule:
+    - cron: "15 01 * * *"   # 每日 09:15 Asia/Taipei ≈ 01:15 UTC
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --no-cache-dir requests
+      - name: Build
+        env:
+          CSE_ID: ${{ secrets.CSE_ID }}
+          CSE_KEY: ${{ secrets.CSE_KEY }}
+          MAX_RESULTS: "40"
+        run: python scripts/feed.py
+      - name: Commit & Push
+        run: |
+          git config user.name "faang-bot"
+          git config user.email "bot@example.com"
+          git add -A
+          git commit -m "chore: daily update" || echo "Nothing to commit"
+          git push
