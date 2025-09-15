@@ -63,6 +63,11 @@ ensure_exists(TEMPLATES_DIR / "head.html", "Missing templates/head.html under <r
 ensure_exists(TEMPLATES_DIR / "tail.html", "Missing templates/tail.html under <repo-root>/templates/")
 ensure_exists(ASSETS_DIR / "style.css",    "Missing assets/style.css under <repo-root>/assets/")
 
+# Required environment secrets
+CSE_ID = os.environ["CSE_ID"]   # Google Programmable Search Engine ID
+CSE_KEY = os.environ["CSE_KEY"] # Google API Key
+
+
 # -------- Utilities --------
 def load_json(path: Path):
     with open(path, "r", encoding="utf-8") as f:
