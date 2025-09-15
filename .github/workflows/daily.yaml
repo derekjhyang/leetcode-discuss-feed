@@ -23,6 +23,7 @@ jobs:
           COMPANY_CONFIG: ${{ github.workspace }}/config/companies.json
           SETTINGS_CONFIG: ${{ github.workspace }}/config/settings.json
           JSON_SALT: ${{ secrets.JSON_SALT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: cat data/manifest.json
       - name: Print json_path from manifest
         run: |
