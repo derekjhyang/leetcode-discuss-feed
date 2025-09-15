@@ -21,7 +21,7 @@ import urllib.request
 import urllib.error
 
 # -------- Paths / Defaults --------
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent 
 CONFIG_DIR = ROOT / "config"
 TEMPLATES_DIR = ROOT / "templates"
 ASSETS_DIR = ROOT / "assets"
