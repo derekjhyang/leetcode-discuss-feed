@@ -37,7 +37,6 @@ jobs:
           test -f data/manifest.json || (echo "manifest.json missing!" && exit 1)
           echo "Outputs verified: index.html + manifest.json"
 
-p = pathlib.Path(data.get("json_path"))
       - name: Show manifest & JSON path
         run: |
           cat data/manifest.json
