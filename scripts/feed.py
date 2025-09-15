@@ -21,10 +21,12 @@ import urllib.request
 import urllib.error
 
 # -------- Paths / Defaults --------
-ROOT = Path(__file__).resolve().parent.parent 
+# Go up one level from scripts/ to project root
+ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
 TEMPLATES_DIR = ROOT / "templates"
 ASSETS_DIR = ROOT / "assets"
+
 
 COMPANY_FILE = Path(os.getenv("COMPANY_CONFIG", CONFIG_DIR / "companies.json"))
 SETTINGS_FILE = Path(os.getenv("SETTINGS_CONFIG", CONFIG_DIR / "settings.json"))
