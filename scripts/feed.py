@@ -20,20 +20,48 @@ import urllib.parse
 import urllib.request
 import urllib.error
 
-# -------- Paths / Defaults --------
-# Go up one level from scripts/ to project root
-ROOT = Path(__file__).resolve().parent.parent
-CONFIG_DIR = ROOT / "config"
-TEMPLATES_DIR = ROOT / "templates"
-ASSETS_DIR = ROOT / "assets"
+def detect_project_root() -> Path:
+    # 1) explicit CI hint
+    ws = os.environ.get("GITHUB_WORKSPACE")
+    if ws and Path(ws).exists():
+        return Path(ws).resolve()
 
+    # 2) git toplevel if available (works locally & CI)
+    try:
+        top = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+        if top and Path(top).exists():
+            return Path(top).resolve()
+    except Exception:
+        pass
 
-COMPANY_FILE = Path(os.getenv("COMPANY_CONFIG", CONFIG_DIR / "companies.json"))
-SETTINGS_FILE = Path(os.getenv("SETTINGS_CONFIG", CONFIG_DIR / "settings.json"))
+    # 3) fallback: scripts/..
+    return Path(__file__).resolve().parent.parent
 
-# Required environment secrets
-CSE_ID = os.environ["CSE_ID"]   # Google Programmable Search Engine ID
-CSE_KEY = os.environ["CSE_KEY"] # Google API Key
+PROJECT_ROOT = detect_project_root()
+
+def ensure_exists(p: Path, hint: str):
+    if not p.exists():
+        raise FileNotFoundError(f"Missing file: {p}\nHint: {hint}")
+
+# ---------- config locations ----------
+# Allow explicit env overrides
+company_cfg_env = os.getenv("COMPANY_CONFIG")
+settings_cfg_env = os.getenv("SETTINGS_CONFIG")
+
+COMPANY_FILE = Path(company_cfg_env) if company_cfg_env else (PROJECT_ROOT / "config" / "companies.json")
+SETTINGS_FILE = Path(settings_cfg_env) if settings_cfg_env else (PROJECT_ROOT / "config" / "settings.json")
+
+TEMPLATES_DIR = PROJECT_ROOT / "templates"
+ASSETS_DIR    = PROJECT_ROOT / "assets"
+
+ensure_exists(COMPANY_FILE,  "Put companies.json under <repo-root>/config/ or set COMPANY_CONFIG env.")
+ensure_exists(SETTINGS_FILE, "Put settings.json under <repo-root>/config/ or set SETTINGS_CONFIG env.")
+ensure_exists(TEMPLATES_DIR / "head.html", "Missing templates/head.html under <repo-root>/templates/")
+ensure_exists(TEMPLATES_DIR / "tail.html", "Missing templates/tail.html under <repo-root>/templates/")
+ensure_exists(ASSETS_DIR / "style.css",    "Missing assets/style.css under <repo-root>/assets/")
 
 # -------- Utilities --------
 def load_json(path: Path):
