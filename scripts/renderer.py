@@ -12,8 +12,6 @@ from typing import Any, Dict, List, Tuple, Optional, cast
 
 from scripts.config_loader import Config, now_iso_utc, read_text, write_json_atomic
 
-__all__ = ["Renderer"]
-
 
 @dataclass
 class Renderer:
@@ -64,7 +62,7 @@ class Renderer:
         import json
 
         with open(p, "r", encoding="utf-8") as f:
-            return cast(dict[str, Any], json.load(f))
+            return cast(Dict[str, Any], json.load(f))
 
     def _render_stats_cards(self, items: List[Dict[str, Any]]) -> str:
         data = self._load_summary_json()
@@ -170,6 +168,24 @@ class Renderer:
         parts.append("</ul></section>")
         return "\n".join(parts)
 
+    def _strip_sample_section(self, md: str) -> str:
+        lines = md.splitlines()
+        out: List[str] = []
+        skipping = False
+        for line in lines:
+            if not skipping and line.strip().lower().startswith("## sample questions"):
+                skipping = True
+                continue
+            if skipping:
+                if line.strip().startswith("## "):
+                    skipping = False
+                    out.append(line)
+                else:
+                    continue
+            else:
+                out.append(line)
+        return "\n".join(out)
+
     def _build_html(self, items: List[Dict[str, Any]], summary_text: Optional[str] = None) -> str:
         head_tpl = read_text(self.cfg.templates_dir / "head.html")
         head = head_tpl.replace("{{PAGE_TITLE}}", html.escape(self.cfg.page_title))
@@ -189,15 +205,18 @@ class Renderer:
         parts.append("<section class='summary-panel'>")
         parts.append("<h2>📊 Daily Summary</h2>")
         parts.append("<div class='summary-content'>")
+        md_text: Optional[str] = None
         if summary_text and summary_text.strip():
-            parts.append(f"<pre class='summary-md'>{html.escape(summary_text)}</pre>")
+            md_text = summary_text
         else:
             md_path = self.cfg.project_root / "summary.md"
             if md_path.exists():
-                raw = read_text(md_path)
-                parts.append(f"<pre class='summary-md'>{html.escape(raw)}</pre>")
-            else:
-                parts.append("<em>No summary available.</em>")
+                md_text = read_text(md_path)
+        if md_text:
+            clean = self._strip_sample_section(md_text)
+            parts.append(f"<pre class='summary-md'>{html.escape(clean)}</pre>")
+        else:
+            parts.append("<em>No summary available.</em>")
         parts.append("</div></section>")
 
         tail_tpl = read_text(self.cfg.templates_dir / "tail.html")
