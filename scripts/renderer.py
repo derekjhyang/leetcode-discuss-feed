@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Tuple
 
 from scripts.config_loader import Config, now_iso_utc, read_text, write_json_atomic
 
+__all__ = ["Renderer"]
+
 
 @dataclass
 class Renderer:
@@ -36,15 +38,14 @@ class Renderer:
 
     def write_json_and_manifest(self, items: List[Dict[str, Any]]) -> Path:
         json_abs = self.compute_json_path()
-        write_json_atomic(json_abs, {
-            "updated_at": now_iso_utc(),
-            "count": len(items),
-            "items": items
-        })
-        manifest_payload = {
+        write_json_atomic(
+            json_abs,
+            {"updated_at": now_iso_utc(), "count": len(items), "items": items},
+        )
+        manifest_payload: Dict[str, Any] = {
             "updated_at": now_iso_utc(),
             "json_path": str(json_abs.relative_to(self.cfg.project_root).as_posix()),
-            "count": len(items)
+            "count": len(items),
         }
         write_json_atomic(self.cfg.manifest_path, manifest_payload)
         return json_abs
@@ -60,7 +61,7 @@ class Renderer:
     def _company_counts(self, items: List[Dict[str, Any]]) -> List[Tuple[str, int]]:
         counts: Dict[str, int] = {}
         for it in items:
-            c = it.get("company", "Unknown")
+            c = str(it.get("company", "Unknown"))
             counts[c] = counts.get(c, 0) + 1
         return sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
 
@@ -68,7 +69,9 @@ class Renderer:
         head_tpl = read_text(self.cfg.templates_dir / "head.html")
         head = head_tpl.replace("{{PAGE_TITLE}}", html.escape(self.cfg.page_title))
         if self.cfg.page_noindex and 'name="robots"' not in head:
-            head = head.replace("</head>", '  <meta name="robots" content="noindex,nofollow">\n</head>')
+            head = head.replace(
+                "</head>", '  <meta name="robots" content="noindex,nofollow">\n</head>'
+            )
 
         parts: List[str] = []
         parts.append(f"<h1>{html.escape(self.cfg.page_title)}</h1>")
@@ -91,7 +94,7 @@ class Renderer:
 
         groups: Dict[str, List[Dict[str, Any]]] = {}
         for it in items:
-            groups.setdefault(it["company"], []).append(it)
+            groups.setdefault(str(it["company"]), []).append(it)
 
         def dom_id(name: str) -> str:
             return "tab-" + re.sub(r"[^a-zA-Z0-9_-]", "-", name)
@@ -110,12 +113,14 @@ class Renderer:
         panes: List[str] = []
         for c in available:
             cid = dom_id(c)
-            panes.append(f"<div id='{cid}' class='tabcontent' role='tabpanel' aria-labelledby='{cid}-btn'>")
+            panes.append(
+                f"<div id='{cid}' class='tabcontent' role='tabpanel' aria-labelledby='{cid}-btn'>"
+            )
             panes.append("<div class='grid'>")
             for it in groups[c]:
-                title = html.escape(it["title"])
-                url = html.escape(it["url"])
-                snippet = html.escape(it.get("snippet", ""))
+                title = html.escape(str(it["title"]))
+                url = html.escape(str(it["url"]))
+                snippet = html.escape(str(it.get("snippet", "")))
                 panes.append(
                     "<div class='card'>"
                     f"<div class='item-title'><a href='{url}' target='_blank' rel='noopener'>{title}</a></div>"
