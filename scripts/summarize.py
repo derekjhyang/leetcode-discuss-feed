@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
 import json
 import os
 from collections import Counter, defaultdict
@@ -25,25 +27,70 @@ def load_latest_items() -> List[Dict[str, Any]]:
 
 def load_categories() -> Dict[str, List[str]]:
     default: Dict[str, List[str]] = {
-        "Graph": ["graph", "bfs", "dfs", "shortest path", "topological", "dijkstra"],
-        "DP": ["dp", "dynamic programming", "knapsack", "subproblem", "memoization", "tabulation"],
-        "String": ["string", "substring", "palindrome", "anagram", "regex", "rabin-karp", "kmp"],
-        "Array": ["array", "prefix sum", "subarray", "interval", "range sum", "matrix"],
-        "Greedy": ["greedy", "interval scheduling", "activity selection"],
-        "Two Pointers": ["two pointers", "sliding window", "fast slow", "window"],
-        "Heap": ["heap", "priority queue", "pq"],
+        "Graph": [
+            "graph",
+            "bfs",
+            "dfs",
+            "shortest path",
+            "topological",
+            "dijkstra",
+            "union find",
+            "disjoint set",
+            "mst",
+            "prim",
+            "kruskal",
+        ],
+        "DP": [
+            "dp",
+            "dynamic programming",
+            "knapsack",
+            "lcs",
+            "lis",
+            "matrix chain",
+            "memoization",
+            "tabulation",
+        ],
+        "String": [
+            "string",
+            "substr",
+            "substring",
+            "palindrome",
+            "anagram",
+            "edit distance",
+            "kmp",
+            "rabin-karp",
+            "rolling hash",
+        ],
+        "Array": ["array", "subarray", "prefix sum", "two sum", "interval", "range sum", "matrix"],
+        "Greedy": ["greedy", "interval scheduling", "activity selection", "candies"],
+        "Two Pointers": [
+            "two pointers",
+            "two-pointer",
+            "fast slow",
+            "slow fast",
+            "sliding window",
+            "window",
+        ],
+        "Heap": ["heap", "priority queue", "pq", "top k"],
         "Tree": ["tree", "bst", "trie", "segment tree", "fenwick", "binary tree"],
         "SQL": ["sql", "join", "group by", "window function", "cte"],
         "System Design": [
+            "system design",
             "design",
-            "scaling",
-            "cache",
-            "shard",
+            "scale",
+            "scalable",
+            "sharding",
+            "partition",
             "load balancer",
             "cdn",
+            "cache",
+            "consistent hashing",
             "rate limit",
-            "url shortener",
             "message queue",
+            "kafka",
+            "pubsub",
+            "throughput",
+            "latency",
         ],
         "Concurrency": [
             "concurrency",
@@ -55,7 +102,7 @@ def load_categories() -> Dict[str, List[str]]:
             "thread",
         ],
         "Math": ["math", "prime", "gcd", "lcm", "mod", "probability", "combinatorics"],
-        "Sorting": ["sort", "sorting", "quicksort", "mergesort", "bucket", "radix"],
+        "Sorting": ["sort", "quicksort", "merge sort", "bucket sort", "radix"],
         "Other": [],
     }
     cfg_path = Path("config/categories.json")
@@ -111,14 +158,13 @@ def render_rules_summary(items: List[Dict[str, Any]]) -> str:
     company_counts, company_cat_counts = build_trends(items, categories)
 
     lines: List[str] = []
-    lines.append("# Daily Interview Feed Summary\n")
-
+    lines.append("# Daily Interview Feed Summary")
+    lines.append("")
     if company_counts:
         lines.append("## Top Companies by Mentions")
         for company, cnt in company_counts.most_common(10):
             lines.append(f"- {company}: {cnt} questions")
         lines.append("")
-
     if company_cat_counts:
         lines.append("## Trend by Company")
         for company, _ in company_counts.most_common():
@@ -129,31 +175,27 @@ def render_rules_summary(items: List[Dict[str, Any]]) -> str:
             for cat, cnt in cat_counter.most_common(5):
                 lines.append(f"  - {cat}: {cnt}")
         lines.append("")
-
     lines.append("## Sample Questions")
     for it in items[:5]:
         title = str(it.get("title", "")).strip()
         url = str(it.get("url", "")).strip()
         company = str(it.get("company", "Unknown"))
         lines.append(f"- {company}: {title} ({url})")
-
-    return "\n".join(lines) + "\n"
+    lines.append("")
+    return "\n".join(lines)
 
 
 def render_openai_summary(items: List[Dict[str, Any]], api_key: str) -> str:
     if OpenAI is None:
-        raise RuntimeError("openai package not installed. Run `pip install openai`")
-
+        raise RuntimeError("openai package not installed")
     categories = load_categories()
     company_counts, company_cat_counts = build_trends(items, categories)
-
     bullets = "\n".join(
         [
             f"- {str(it.get('company', 'Unknown'))}: {str(it.get('title', '')).strip()}"
             for it in items[:15]
         ]
     )
-
     trend_lines: List[str] = []
     for company, _ in company_counts.most_common():
         cat_counter = company_cat_counts[company]
@@ -162,7 +204,6 @@ def render_openai_summary(items: List[Dict[str, Any]], api_key: str) -> str:
         cats = ", ".join([f"{cat}({cnt})" for cat, cnt in cat_counter.most_common(5)])
         trend_lines.append(f"{company}: {cats}")
     trend_text = "\n".join(trend_lines)
-
     client = OpenAI(api_key=api_key)
     prompt = f"""
 You are an assistant that writes a concise daily report of interview questions found in a forum feed.
@@ -175,7 +216,7 @@ Topic categories and counts (pre-aggregated):
 Examples:
 {bullets}
 
-Write a clean Markdown report with headings and bullet points. Keep it under 250–300 words.
+Write a clean Markdown report with headings and bullet points. Keep it under 300 words.
 """
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -192,17 +233,22 @@ def main() -> None:
     if api_key:
         try:
             summary = render_openai_summary(items, api_key)
-            print("[ok] OpenAI summary generated")
-        except Exception as e:
-            print(f"[warn] OpenAI failed, falling back. Reason: {e}")
+        except Exception:
             summary = render_rules_summary(items)
     else:
-        print("[info] OPENAI_API_KEY not set; using rules-based summary")
         summary = render_rules_summary(items)
-
     with open("summary.md", "w", encoding="utf-8") as f:
         f.write(summary)
-    print("[ok] wrote summary.md")
+    categories = load_categories()
+    company_counts, company_cat_counts = build_trends(items, categories)
+    payload = {
+        "company_counts": dict(company_counts),
+        "company_category_counts": {k: dict(v) for k, v in company_cat_counts.items()},
+        "top_companies": company_counts.most_common(10),
+    }
+    Path("data").mkdir(parents=True, exist_ok=True)
+    with open("data/summary.json", "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":

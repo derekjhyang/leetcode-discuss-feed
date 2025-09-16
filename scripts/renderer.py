@@ -8,7 +8,7 @@ import string
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional, cast
 
 from scripts.config_loader import Config, now_iso_utc, read_text, write_json_atomic
 
@@ -50,14 +50,6 @@ class Renderer:
         write_json_atomic(self.cfg.manifest_path, manifest_payload)
         return json_abs
 
-    def _read_summary_md_as_html(self) -> str:
-        md_path = self.cfg.project_root / "summary.md"
-        if not md_path.exists():
-            return "<em>No summary available.</em>"
-        raw = read_text(md_path)
-        escaped = html.escape(raw)
-        return f"<pre class='summary-md'>{escaped}</pre>"
-
     def _company_counts(self, items: List[Dict[str, Any]]) -> List[Tuple[str, int]]:
         counts: Dict[str, int] = {}
         for it in items:
@@ -65,36 +57,64 @@ class Renderer:
             counts[c] = counts.get(c, 0) + 1
         return sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
 
-    def _build_html(self, items: List[Dict[str, Any]], summary_text: Optional[str] = None) -> str:
-        head_tpl = read_text(self.cfg.templates_dir / "head.html")
-        head = head_tpl.replace("{{PAGE_TITLE}}", html.escape(self.cfg.page_title))
-        if self.cfg.page_noindex and 'name="robots"' not in head:
-            head = head.replace(
-                "</head>", '  <meta name="robots" content="noindex,nofollow">\n</head>'
-            )
+    def _load_summary_json(self) -> Dict[str, Any]:
+        p = self.cfg.project_root / "data" / "summary.json"
+        if not p.exists():
+            return {}
+        import json
 
+        with open(p, "r", encoding="utf-8") as f:
+            return cast(dict[str, Any], json.load(f))
+
+    def _render_stats_cards(self, items: List[Dict[str, Any]]) -> str:
+        data = self._load_summary_json()
+        counts_obj = data.get("company_counts")
+        if not isinstance(counts_obj, dict) or not counts_obj:
+            return self._render_stats_list(items)
+        counts: Dict[str, int] = {str(k): int(v) for k, v in counts_obj.items()}
+        if not counts:
+            return ""
+        maxv = max(counts.values())
+        ordered = [c for c in self.cfg.company_order if c in counts]
+        tail = [c for c in counts.keys() if c not in ordered]
+        ordered += tail
         parts: List[str] = []
-        parts.append(f"<h1>{html.escape(self.cfg.page_title)}</h1>")
-        parts.append(f"<div class='time'>Updated at {html.escape(now_iso_utc())}</div>")
-
-        parts.append("<section class='summary-panel'>")
-        parts.append("<h2>📊 Daily Summary</h2>")
-        parts.append("<div class='summary-content'>")
-        if summary_text is not None and summary_text.strip():
-            parts.append(f"<pre class='summary-md'>{html.escape(summary_text)}</pre>")
-        else:
-            parts.append(self._read_summary_md_as_html())
+        parts.append("<section class='trend-cards'>")
+        parts.append("<h2>🔥 Trend Stats</h2>")
+        parts.append("<div class='cards'>")
+        for c in ordered:
+            v = counts.get(c, 0)
+            if v <= 0:
+                continue
+            pct = int(round((v / maxv) * 100)) if maxv > 0 else 0
+            parts.append(
+                f"""
+<div class='stat-card'>
+  <div class='stat-head'>
+    <span class='stat-title'>{html.escape(c)}</span>
+    <span class='stat-value'>{v}</span>
+  </div>
+  <div class='stat-bar'><div class='stat-bar-fill' style='width:{pct}%;'></div></div>
+</div>
+""".strip()
+            )
         parts.append("</div></section>")
+        return "\n".join(parts)
 
+    def _render_stats_list(self, items: List[Dict[str, Any]]) -> str:
         counts = self._company_counts(items)
-        if counts:
-            parts.append("<section class='trend-stats'>")
-            parts.append("<h2>🔥 Trend Stats (by company)</h2>")
-            parts.append("<ul class='stats-list'>")
-            for company, cnt in counts:
-                parts.append(f"<li><strong>{html.escape(company)}</strong>: {cnt} posts</li>")
-            parts.append("</ul></section>")
+        if not counts:
+            return ""
+        parts: List[str] = []
+        parts.append("<section class='trend-stats'>")
+        parts.append("<h2>🔥 Trend Stats (by company)</h2>")
+        parts.append("<ul class='stats-list'>")
+        for company, cnt in counts:
+            parts.append(f"<li><strong>{html.escape(company)}</strong>: {cnt} posts</li>")
+        parts.append("</ul></section>")
+        return "\n".join(parts)
 
+    def _render_tabs_and_cards(self, items: List[Dict[str, Any]]) -> str:
         groups: Dict[str, List[Dict[str, Any]]] = {}
         for it in items:
             groups.setdefault(str(it["company"]), []).append(it)
@@ -104,6 +124,7 @@ class Renderer:
 
         available = [c for c in self.cfg.company_order if c in groups and groups[c]]
 
+        out: List[str] = []
         tabs: List[str] = ["<div class='tab' role='tablist' aria-label='Companies'>"]
         for c in available:
             cid = dom_id(c)
@@ -111,7 +132,7 @@ class Renderer:
                 f"<button class='tablink' role='tab' aria-controls='{cid}' onclick=\"openCompany(event,'{cid}')\">{html.escape(c)}</button>"
             )
         tabs.append("</div>")
-        parts.append("\n".join(tabs))
+        out.append("\n".join(tabs))
 
         panes: List[str] = []
         for c in available:
@@ -131,10 +152,56 @@ class Renderer:
                     "</div>"
                 )
             panes.append("</div></div>")
-        parts.append("\n".join(panes))
+        out.append("\n".join(panes))
+        return "\n".join(out)
+
+    def _render_sample_questions(self, items: List[Dict[str, Any]], limit: int = 6) -> str:
+        parts: List[str] = []
+        parts.append("<section class='sample-questions'>")
+        parts.append("<h2>🔗 Sample Questions</h2>")
+        parts.append("<ul>")
+        for it in items[:limit]:
+            company = html.escape(str(it.get("company", "Unknown")))
+            title = html.escape(str(it.get("title", "")).strip())
+            url = html.escape(str(it.get("url", "")).strip())
+            parts.append(
+                f"<li><strong>{company}</strong>: <a href='{url}' target='_blank' rel='noopener'>{title}</a></li>"
+            )
+        parts.append("</ul></section>")
+        return "\n".join(parts)
+
+    def _build_html(self, items: List[Dict[str, Any]], summary_text: Optional[str] = None) -> str:
+        head_tpl = read_text(self.cfg.templates_dir / "head.html")
+        head = head_tpl.replace("{{PAGE_TITLE}}", html.escape(self.cfg.page_title))
+        if self.cfg.page_noindex and 'name="robots"' not in head:
+            head = head.replace(
+                "</head>", '  <meta name="robots" content="noindex,nofollow">\n</head>'
+            )
+
+        parts: List[str] = []
+        parts.append(f"<h1>{html.escape(self.cfg.page_title)}</h1>")
+        parts.append(f"<div class='time'>Updated at {html.escape(now_iso_utc())}</div>")
+
+        parts.append(self._render_stats_cards(items))
+        parts.append(self._render_tabs_and_cards(items))
+        parts.append(self._render_sample_questions(items))
+
+        parts.append("<section class='summary-panel'>")
+        parts.append("<h2>📊 Daily Summary</h2>")
+        parts.append("<div class='summary-content'>")
+        if summary_text and summary_text.strip():
+            parts.append(f"<pre class='summary-md'>{html.escape(summary_text)}</pre>")
+        else:
+            md_path = self.cfg.project_root / "summary.md"
+            if md_path.exists():
+                raw = read_text(md_path)
+                parts.append(f"<pre class='summary-md'>{html.escape(raw)}</pre>")
+            else:
+                parts.append("<em>No summary available.</em>")
+        parts.append("</div></section>")
 
         tail_tpl = read_text(self.cfg.templates_dir / "tail.html")
-        return head + "\n<body>\n" + "\n".join(parts) + "\n" + tail_tpl
+        return head + "\n<body>\n" + "\n".join([p for p in parts if p]) + "\n" + tail_tpl
 
     def write_html(self, items: List[Dict[str, Any]], summary_text: Optional[str] = None) -> None:
         html_doc = self._build_html(items, summary_text=summary_text)
