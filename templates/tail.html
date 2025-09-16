@@ -11,22 +11,14 @@
       for (i = 0; i < tablinks.length; i++) {
         tablinks[i].classList.remove("active");
       }
-      document.getElementById(companyId).style.display = "block";
-      evt.currentTarget.classList.add("active");
+      var el = document.getElementById(companyId);
+      if (el) el.style.display = "block";
+      if (evt && evt.currentTarget) evt.currentTarget.classList.add("active");
     }
     document.addEventListener("DOMContentLoaded", function() {
       var first = document.querySelector(".tablink");
       if (first) first.click();
     });
   </script>
-
-  <hr style="margin:2em 0; border:0; border-top:1px solid #ccc;">
-
-  <div class="summary-panel">
-    <h2>📋 Daily Summary</h2>
-    <div class="summary-md">
-      {{summary_text}}
-    </div>
-  </div>
 </body>
 </html>
