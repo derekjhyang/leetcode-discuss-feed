@@ -1,0 +1,5 @@
+requests
+ruff
+mypy
+pre-commit
+jq
