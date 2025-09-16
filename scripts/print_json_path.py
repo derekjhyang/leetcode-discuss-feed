@@ -1,4 +1,5 @@
 import json, pathlib
+
 mf = pathlib.Path("data/manifest.json")
 data = json.loads(mf.read_text())
 print("Latest JSON path:", data.get("json_path"))

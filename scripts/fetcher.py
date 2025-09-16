@@ -37,10 +37,14 @@ class Fetcher:
             return json.loads(resp.read().decode("utf-8"))
 
     def fetch(self) -> List[Dict[str, Any]]:
-        company_rx = {c: re.compile(r"|".join(map(re.escape, v)), re.I)
-                      for c, v in self.cfg.companies_aliases.items()}
+        company_rx = {
+            c: re.compile(r"|".join(map(re.escape, v)), re.I)
+            for c, v in self.cfg.companies_aliases.items()
+        }
         allow_rx = re.compile("|".join(self.cfg.allow_patterns), re.I)
-        keywords_rx = re.compile(r"\b(" + "|".join(map(re.escape, self.cfg.keyword_words)) + r")\b", re.I)
+        keywords_rx = re.compile(
+            r"\b(" + "|".join(map(re.escape, self.cfg.keyword_words)) + r")\b", re.I
+        )
 
         def detect_company(text: str | None) -> str | None:
             s = text or ""
@@ -75,13 +79,15 @@ class Fetcher:
                 company = detect_company(combo)
                 if not company:
                     continue
-                items.append({
-                    "title": title,
-                    "url": link,
-                    "snippet": snippet,
-                    "company": company,
-                    "first_seen": now_iso_utc(),
-                })
+                items.append(
+                    {
+                        "title": title,
+                        "url": link,
+                        "snippet": snippet,
+                        "company": company,
+                        "first_seen": now_iso_utc(),
+                    }
+                )
 
             start += 10
             time.sleep(0.6)

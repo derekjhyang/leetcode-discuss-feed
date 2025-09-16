@@ -14,6 +14,7 @@ FAANG Discuss aggregator (compliant, refactored).
 - The HTML page does NOT link or expose the JSON path. A small manifest (data/manifest.json)
   is written for ops/automation to discover the latest JSON path.
 """
+
 from __future__ import annotations
 
 from config_loader import Config

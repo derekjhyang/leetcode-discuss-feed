@@ -36,17 +36,15 @@ class Renderer:
 
     def write_json_and_manifest(self, items: List[Dict[str, any]]) -> Path:
         json_abs = self.compute_json_path()
-        write_json_atomic(json_abs, {
-            "updated_at": now_iso_utc(),
-            "count": len(items),
-            "items": items
-        })
+        write_json_atomic(
+            json_abs, {"updated_at": now_iso_utc(), "count": len(items), "items": items}
+        )
         print(f"[ok] wrote JSON {json_abs}")
 
         manifest_payload = {
             "updated_at": now_iso_utc(),
             "json_path": str(json_abs.relative_to(self.cfg.project_root).as_posix()),
-            "count": len(items)
+            "count": len(items),
         }
         write_json_atomic(self.cfg.manifest_path, manifest_payload)
         print(f"[ok] wrote manifest {self.cfg.manifest_path} → {manifest_payload['json_path']}")
@@ -56,7 +54,9 @@ class Renderer:
         head_tpl = read_text(self.cfg.templates_dir / "head.html")
         head = head_tpl.replace("{{PAGE_TITLE}}", html.escape(self.cfg.page_title))
         if self.cfg.page_noindex and 'name="robots"' not in head:
-            head = head.replace("</head>", '  <meta name="robots" content="noindex,nofollow">\n</head>')
+            head = head.replace(
+                "</head>", '  <meta name="robots" content="noindex,nofollow">\n</head>'
+            )
 
         parts: List[str] = []
         parts.append(f"<h1>{html.escape(self.cfg.page_title)}</h1>")
@@ -68,6 +68,7 @@ class Renderer:
 
         def dom_id(name: str) -> str:
             import re
+
             return "tab-" + re.sub(r"[^a-zA-Z0-9_-]", "-", name)
 
         available = [c for c in self.cfg.company_order if c in groups and groups[c]]
@@ -84,7 +85,9 @@ class Renderer:
         panes: List[str] = []
         for c in available:
             cid = dom_id(c)
-            panes.append(f"<div id='{cid}' class='tabcontent' role='tabpanel' aria-labelledby='{cid}-btn'>")
+            panes.append(
+                f"<div id='{cid}' class='tabcontent' role='tabpanel' aria-labelledby='{cid}-btn'>"
+            )
             panes.append("<div class='grid'>")
             for it in groups[c]:
                 title = html.escape(it["title"])

@@ -46,10 +46,13 @@ class Config:
         if ws and Path(ws).exists():
             return Path(ws).resolve()
         try:
-            top = subprocess.check_output(
-                ["git", "rev-parse", "--show-toplevel"],
-                stderr=subprocess.DEVNULL
-            ).decode().strip()
+            top = (
+                subprocess.check_output(
+                    ["git", "rev-parse", "--show-toplevel"], stderr=subprocess.DEVNULL
+                )
+                .decode()
+                .strip()
+            )
             if top and Path(top).exists():
                 return Path(top).resolve()
         except Exception:
@@ -65,10 +68,18 @@ class Config:
         templates_dir = root / "templates"
         assets_dir = root / "assets"
 
-        die_missing(companies_cfg, "Put companies.json under <repo-root>/config/ or set COMPANY_CONFIG env.")
-        die_missing(settings_cfg, "Put settings.json under <repo-root>/config/ or set SETTINGS_CONFIG env.")
-        die_missing(templates_dir / "head.html", "Missing templates/head.html under <repo-root>/templates/")
-        die_missing(templates_dir / "tail.html", "Missing templates/tail.html under <repo-root>/templates/")
+        die_missing(
+            companies_cfg, "Put companies.json under <repo-root>/config/ or set COMPANY_CONFIG env."
+        )
+        die_missing(
+            settings_cfg, "Put settings.json under <repo-root>/config/ or set SETTINGS_CONFIG env."
+        )
+        die_missing(
+            templates_dir / "head.html", "Missing templates/head.html under <repo-root>/templates/"
+        )
+        die_missing(
+            templates_dir / "tail.html", "Missing templates/tail.html under <repo-root>/templates/"
+        )
         die_missing(assets_dir / "style.css", "Missing assets/style.css under <repo-root>/assets/")
 
         companies_aliases = read_json(companies_cfg)
@@ -79,22 +90,32 @@ class Config:
 
         page_title = settings.get("page", {}).get("title", "FAANG Discuss Daily")
         page_noindex = bool(settings.get("page", {}).get("noindex", True))
-        company_order = settings.get("page", {}).get("company_order", list(companies_aliases.keys()))
+        company_order = settings.get("page", {}).get(
+            "company_order", list(companies_aliases.keys())
+        )
 
         site_host = settings.get("query", {}).get("site", "leetcode.com/discuss")
         max_results = int(settings.get("query", {}).get("max_results", 40))
         q_companies = settings.get("query", {}).get("companies", list(companies_aliases.keys()))
-        q_intents = settings.get("query", {}).get("intents", ["interview", "onsite", "phone", "screen", "OA", "questions"])
+        q_intents = settings.get("query", {}).get(
+            "intents", ["interview", "onsite", "phone", "screen", "OA", "questions"]
+        )
 
-        allow_patterns = settings.get("filters", {}).get("path_allow", [
-            r"^https?://leetcode\.com/discuss/(?:interview-question|study-guide|general-discussion|interview-experience)/"
-        ])
-        keyword_words = settings.get("filters", {}).get("keywords", [
-            "onsite", "phone", "screen", "oa", "interview", "experience", "question", "questions"
-        ])
+        allow_patterns = settings.get("filters", {}).get(
+            "path_allow",
+            [
+                r"^https?://leetcode\.com/discuss/(?:interview-question|study-guide|general-discussion|interview-experience)/"
+            ],
+        )
+        keyword_words = settings.get("filters", {}).get(
+            "keywords",
+            ["onsite", "phone", "screen", "oa", "interview", "experience", "question", "questions"],
+        )
 
         output_html = root / Path(settings.get("output", {}).get("html", "index.html"))
-        manifest_path = root / Path(settings.get("output", {}).get("json_manifest", "data/manifest.json"))
+        manifest_path = root / Path(
+            settings.get("output", {}).get("json_manifest", "data/manifest.json")
+        )
         json_randomize = bool(settings.get("output", {}).get("json_randomize", True))
         json_daily_stable = bool(settings.get("output", {}).get("json_daily_stable", True))
         json_salt = os.getenv("JSON_SALT", "")
