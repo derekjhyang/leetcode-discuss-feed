@@ -27,5 +27,6 @@ show_error_codes = true
 pretty = true
 ignore_missing_imports = true
 
-[tool.mypy.scripts.*]
+[[tool.mypy.overrides]]
+module = ["scripts.*"]
 disallow_untyped_calls = true
