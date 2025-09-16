@@ -73,3 +73,11 @@ a:hover { text-decoration: underline; }
 .tabcontent {
   display: none; /* hidden by default; JS will toggle */
 }
+.summary-panel { margin: 1.25rem 0; padding: 1rem; border: 1px solid #eee; border-radius: 12px; background: #fafafa; }
+.summary-panel h2 { margin: 0 0 .5rem 0; }
+.summary-md { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 0.95rem; line-height: 1.45; }
+
+.trend-stats { margin: 1.25rem 0; padding: 1rem; border: 1px solid #eee; border-radius: 12px; background: #fff; }
+.trend-stats h2 { margin: 0 0 .5rem 0; }
+.stats-list { margin: 0.5rem 0 0 1rem; }
+.stats-list li { margin: 0.25rem 0; }

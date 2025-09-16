@@ -1,0 +1,7 @@
+{
+  "Graph": ["graph", "bfs", "dfs", "shortest path", "dijkstra", "topological"],
+  "DP": ["dp", "dynamic programming", "knapsack", "subproblem", "memoization"],
+  "String": ["string", "substring", "palindrome", "anagram", "regex"],
+  "SQL": ["sql", "join", "group by", "window function", "cte"],
+  "System Design": ["design", "cache", "shard", "load balancer", "cdn", "rate limit", "url shortener"]
+}
