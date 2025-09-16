@@ -17,12 +17,9 @@ jobs:
       - run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
-      - name: Ruff lint
-        run: ruff check . --output-format=github
-      - name: Ruff format check
-        run: ruff format --check .
-      - name: Mypy type check
-        run: mypy scripts/
+      - run: ruff check . --output-format=github
+      - run: ruff format --check .
+      - run: mypy scripts/
 
   test:
     runs-on: ubuntu-latest
@@ -42,15 +39,12 @@ jobs:
           COMPANY_CONFIG: ${{ github.workspace }}/config/companies.json
           SETTINGS_CONFIG: ${{ github.workspace }}/config/settings.json
           JSON_SALT: "ci-test"
-        run: python scripts/feed.py
-      - name: Verify outputs
-        run: |
+        run: python -m scripts.feed
+      - run: |
           test -f index.html || (echo "index.html missing!" && exit 1)
           test -f data/manifest.json || (echo "manifest.json missing!" && exit 1)
           jq '.json_path and .count and .updated_at' data/manifest.json > /dev/null
-      - name: Show manifest
-        run: |
+      - run: |
           cat data/manifest.json
-          python scripts/print_json_path.py
-      - name: Cleanup
-        run: rm -rf data index.html
+          python -m scripts.print_json_path
+      - run: rm -rf data index.html
