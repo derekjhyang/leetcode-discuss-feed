@@ -8,7 +8,7 @@ import string
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from scripts.config_loader import Config, now_iso_utc, read_text, write_json_atomic
 
@@ -65,7 +65,7 @@ class Renderer:
             counts[c] = counts.get(c, 0) + 1
         return sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
 
-    def _build_html(self, items: List[Dict[str, Any]]) -> str:
+    def _build_html(self, items: List[Dict[str, Any]], summary_text: Optional[str] = None) -> str:
         head_tpl = read_text(self.cfg.templates_dir / "head.html")
         head = head_tpl.replace("{{PAGE_TITLE}}", html.escape(self.cfg.page_title))
         if self.cfg.page_noindex and 'name="robots"' not in head:
@@ -80,7 +80,10 @@ class Renderer:
         parts.append("<section class='summary-panel'>")
         parts.append("<h2>📊 Daily Summary</h2>")
         parts.append("<div class='summary-content'>")
-        parts.append(self._read_summary_md_as_html())
+        if summary_text is not None and summary_text.strip():
+            parts.append(f"<pre class='summary-md'>{html.escape(summary_text)}</pre>")
+        else:
+            parts.append(self._read_summary_md_as_html())
         parts.append("</div></section>")
 
         counts = self._company_counts(items)
@@ -133,8 +136,8 @@ class Renderer:
         tail_tpl = read_text(self.cfg.templates_dir / "tail.html")
         return head + "\n<body>\n" + "\n".join(parts) + "\n" + tail_tpl
 
-    def write_html(self, items: List[Dict[str, Any]]) -> None:
-        html_doc = self._build_html(items)
+    def write_html(self, items: List[Dict[str, Any]], summary_text: Optional[str] = None) -> None:
+        html_doc = self._build_html(items, summary_text=summary_text)
         self.cfg.output_html.parent.mkdir(parents=True, exist_ok=True)
         with open(self.cfg.output_html, "w", encoding="utf-8") as f:
             f.write(html_doc)
