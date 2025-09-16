@@ -1,24 +1,32 @@
-<script>
-function openCompany(evt, companyId) {
-  // hide all tab contents
-  const panes = document.getElementsByClassName("tabcontent");
-  for (let i = 0; i < panes.length; i++) panes[i].style.display = "none";
+  </div>
 
-  // deactivate all tab buttons
-  const tabs = document.getElementsByClassName("tablink");
-  for (let i = 0; i < tabs.length; i++) tabs[i].classList.remove("active");
+  <script>
+    function openCompany(evt, companyId) {
+      var i, tabcontent, tablinks;
+      tabcontent = document.getElementsByClassName("tabcontent");
+      for (i = 0; i < tabcontent.length; i++) {
+        tabcontent[i].style.display = "none";
+      }
+      tablinks = document.getElementsByClassName("tablink");
+      for (i = 0; i < tablinks.length; i++) {
+        tablinks[i].classList.remove("active");
+      }
+      document.getElementById(companyId).style.display = "block";
+      evt.currentTarget.classList.add("active");
+    }
+    document.addEventListener("DOMContentLoaded", function() {
+      var first = document.querySelector(".tablink");
+      if (first) first.click();
+    });
+  </script>
 
-  // show chosen pane & activate button
-  const pane = document.getElementById(companyId);
-  if (pane) pane.style.display = "block";
-  if (evt && evt.currentTarget) evt.currentTarget.classList.add("active");
-}
+  <hr style="margin:2em 0; border:0; border-top:1px solid #ccc;">
 
-// auto-open first tab after DOM ready
-document.addEventListener("DOMContentLoaded", function () {
-  const first = document.querySelector(".tab button.tablink");
-  if (first) first.click();
-});
-</script>
+  <div class="summary-panel">
+    <h2>📋 Daily Summary</h2>
+    <div class="summary-md">
+      {{summary_text}}
+    </div>
+  </div>
 </body>
 </html>
