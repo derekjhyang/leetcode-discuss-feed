@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-FAANG Discuss aggregator (compliant, refactored).
-- NO direct scraping of LeetCode pages. Uses Google CSE result links/snippets only.
-- Clear separation of concerns:
-  * Config: project root detection, config loading, paths, env.
-  * Fetcher: build query, call CSE, filter, dedup.
-  * Renderer: write randomized JSON (hidden), manifest, and HTML (tabs by company).
-- JSON path is randomized in both directory and filename: data/<token>/<token>.json
-  * If JSON_SALT is set and json_daily_stable=true, token is stable per UTC-day.
-  * Otherwise, token is random per run.
-- The HTML page does NOT link or expose the JSON path. A small manifest (data/manifest.json)
-  is written for ops/automation to discover the latest JSON path.
-"""
-
 from __future__ import annotations
+
+from typing import Optional, List, Dict, Any, Callable
+import os
 
 from scripts.config_loader import Config
 from scripts.fetcher import Fetcher
 from scripts.renderer import Renderer
+from scripts.summarize import render_rules_summary, render_openai_summary
+
+
+def make_summary(items: List[Dict[str, Any]]) -> str:
+    api_key: Optional[str] = os.getenv("OPENAI_API_KEY")
+    if api_key and render_openai_summary is not None:
+        try:
+            return render_openai_summary(items, api_key)
+        except Exception:
+            pass
+    if render_rules_summary is not None:
+        return render_rules_summary(items)
+    return "No AI available. Showing basic counts only."
 
 
 def main() -> None:
@@ -29,7 +31,9 @@ def main() -> None:
 
     items = fetcher.fetch()
     json_path = renderer.write_json_and_manifest(items)
-    renderer.write_html(items)
+
+    summary_text = make_summary(items)
+    renderer.write_html(items, summary_text=summary_text)
 
     rel = json_path.relative_to(cfg.project_root).as_posix()
     print(f"[info] Latest JSON path (not exposed in page): {rel}")
