@@ -17,9 +17,9 @@ FAANG Discuss aggregator (compliant, refactored).
 
 from __future__ import annotations
 
-from config_loader import Config
-from fetcher import Fetcher
-from renderer import Renderer
+from scripts.config_loader import Config
+from scripts.fetcher import Fetcher
+from scripts.renderer import Renderer
 
 
 def main() -> None:

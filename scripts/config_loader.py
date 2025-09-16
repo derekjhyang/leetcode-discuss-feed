@@ -1,12 +1,49 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from utils import die_missing, read_json
+
+__all__ = [
+    "Config",
+    "die_missing",
+    "read_json",
+    "read_text",
+    "write_json_atomic",
+    "now_iso_utc",
+]
+
+
+def die_missing(path: Path, hint: str) -> None:
+    if not path.exists():
+        raise FileNotFoundError(f"Missing file: {path}\nHint: {hint}")
+
+
+def read_json(path: Path) -> Any:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def read_text(path: Path) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def write_json_atomic(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    tmp.replace(path)
+
+
+def now_iso_utc() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 @dataclass(frozen=True)
@@ -82,8 +119,8 @@ class Config:
         )
         die_missing(assets_dir / "style.css", "Missing assets/style.css under <repo-root>/assets/")
 
-        companies_aliases = read_json(companies_cfg)
-        settings = read_json(settings_cfg)
+        companies_aliases: Dict[str, List[str]] = read_json(companies_cfg)
+        settings: Dict[str, Any] = read_json(settings_cfg)
 
         cse_id = os.environ["CSE_ID"]
         cse_key = os.environ["CSE_KEY"]
