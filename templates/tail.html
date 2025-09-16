@@ -1,0 +1,24 @@
+<script>
+function openCompany(evt, companyId) {
+  // hide all tab contents
+  const panes = document.getElementsByClassName("tabcontent");
+  for (let i = 0; i < panes.length; i++) panes[i].style.display = "none";
+
+  // deactivate all tab buttons
+  const tabs = document.getElementsByClassName("tablink");
+  for (let i = 0; i < tabs.length; i++) tabs[i].classList.remove("active");
+
+  // show chosen pane & activate button
+  const pane = document.getElementById(companyId);
+  if (pane) pane.style.display = "block";
+  if (evt && evt.currentTarget) evt.currentTarget.classList.add("active");
+}
+
+// auto-open first tab after DOM ready
+document.addEventListener("DOMContentLoaded", function () {
+  const first = document.querySelector(".tab button.tablink");
+  if (first) first.click();
+});
+</script>
+</body>
+</html>

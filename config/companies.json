@@ -1,0 +1,10 @@
+{
+  "Apple": ["apple", "aapl"],
+  "Microsoft": ["microsoft", "msft"],
+  "Amazon": ["amazon", "amzn"],
+  "Google": ["google", "goog", "alphabet"],
+  "Meta": ["meta", "facebook", "fb"],
+  "NVIDIA": ["nvidia", "nvda"],
+  "Tesla": ["tesla", "tsla"],
+  "Netflix": ["netflix", "nflx"]
+}

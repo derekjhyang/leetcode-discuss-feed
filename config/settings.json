@@ -1,0 +1,35 @@
+{
+  "query": {
+    "site": "leetcode.com/discuss",
+    "max_results": 100,
+    "companies": [
+      "Apple",
+      "Microsoft",
+      "Amazon",
+      "Google",
+      "Meta",
+      "NVIDIA",
+      "Tesla",
+      "Netflix"
+    ],
+    "intents": ["interview", "onsite", "phone", "screen", "OA", "questions"]
+  },
+  "filters": {
+    "path_allow": [
+      "^https?://leetcode\\.com/discuss/(?:interview-question|study-guide|general-discussion|interview-experience)/"
+    ],
+    "keywords": [
+      "onsite", "phone", "screen", "oa", "interview", "experience", "question", "questions"
+    ]
+  },
+  "page": {
+    "title": "FAANG Interview Feed",
+    "noindex": true
+  },
+  "output": {
+    "html": "index.html",
+    "json_manifest": "data/manifest.json",
+    "json_randomize": true,
+    "json_daily_stable": true
+  }
+}
