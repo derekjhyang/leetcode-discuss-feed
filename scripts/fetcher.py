@@ -55,15 +55,18 @@ class Fetcher:
         q = self._build_query()
         items: List[Dict[str, Any]] = []
         start = 1
+        cse_failed = False
 
         while len(items) < self.cfg.max_results and start <= 91:
             try:
                 data = self._cse(q, start=start, num=10)
             except urllib.error.HTTPError as e:
                 print("HTTPError:", e.read())
+                cse_failed = True
                 break
             except Exception as e:
                 print("Fetch error:", e)
+                cse_failed = True
                 break
 
             for it in data.get("items", []):
@@ -102,4 +105,22 @@ class Fetcher:
                 continue
             seen.add(u)
             dedup.append(it)
-        return dedup[: self.cfg.max_results]
+        result = dedup[: self.cfg.max_results]
+
+        # Fallback: if CSE failed or no items, load from manifest
+        if cse_failed or not result:
+            try:
+                manifest_path = self.cfg.manifest_path
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+                json_path = manifest.get("json_path")
+                if json_path:
+                    json_file = self.cfg.project_root / json_path
+                    with open(json_file, "r", encoding="utf-8") as jf:
+                        payload = json.load(jf)
+                    print(f"[fallback] Loaded {len(payload.get('items', []))} items from {json_file}")
+                    return payload.get("items", [])
+            except Exception as e:
+                print(f"[fallback] Failed to load manifest/json: {e}")
+                return []
+        return result
